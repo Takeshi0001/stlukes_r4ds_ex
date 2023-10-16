@@ -1,0 +1,401 @@
+---
+title: "ch13"
+author: "Takeshi Ushigusa"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# 13 Logial vectors
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(nycflights13)
+```
+
+## 13.2 Comparisons
+
+```{r}
+# sample 1
+flights |> 
+  filter(dep_time > 600 & dep_time < 2000 & abs(arr_delay) < 20)
+#abs()は入力に対して絶対値を返す関数.
+
+# sample 2
+flights |> 
+  mutate(
+    daytime = dep_time > 600 & dep_time < 2000,
+    approx_ontime = abs(arr_delay) < 20,
+    .keep = "used"
+  )
+
+#This is particularly useful for more complicated logic because naming the intermediate steps makes it easier to both read your code and check that each step has been computed correctly.
+
+#All up, the initial filter is equivalent to:
+flights |> 
+  mutate(
+    daytime = dep_time > 600 & dep_time < 2000,
+    approx_ontime = abs(arr_delay) < 20,
+  ) |> 
+  filter(daytime & approx_ontime)
+```
+
+### 13.2.1 Floating point comarison
+
+```{r}
+x <- c(1 / 49 * 49, sqrt(2) ^ 2)
+x
+
+#But if you test them for equality, you get FALSE:
+x == c(1,2)
+
+#We can see the exact values by calling print() with the digits argument:
+print(x, digits = 16)
+
+#You can see why R defaults to rounding these numbers; they really are very close to what you expect.
+
+#Now that you’ve seen why == is failing, what can you do about it? One option is to use dplyr::near() which ignores small differences:
+near(x, c(1, 2))
+```
+
+### 13.2.2 Missing values
+
+```{r}
+# We don't know how old Mary is
+age_mary <- NA
+
+# We don't know how old John is
+age_john <- NA
+
+# Are Mary and John the same age?
+age_mary == age_john
+```
+
+So if you want to find all flights where `dep_time` is missing, the following code doesn't work because `dep_time == NA` will yield `NA` for every single row, and `filter()` automatically drops missing values:
+
+```{r}
+#flights |> filter(dep_time == NA)
+# Instead we’ll need a new tool: is.na().
+```
+
+### 13.2.3 is.na()
+
+We can use `is.na()` to find all the rows with a missing `dep_time`:
+
+```{r}
+flights |> 
+  filter(is.na(dep_time))
+```
+
+`is.na()` can also be useful in `arrange()`. `arrange()` usually puts all the missing values at the end but you can override this default by first sorting by `is.na()`:
+
+```{r}
+#これだと最後にmissing value.
+flights |> 
+  filter(month == 1, day == 1) |> 
+  arrange(dep_time)
+
+#これだと最初にmissing value.
+flights |> 
+  filter(month == 1, day == 1) |> 
+  arrange(desc(is.na(dep_time)), dep_time)
+```
+
+## 13.3 Boolean algebra
+
+Once you have multiple logical vectors, you can combine them together using Boolean algebra. In R, `&` is "and", `|` is "or", `!` is "not", and `xor()` is exclusive or2. For example, `df |> filter(!is.na(x))` finds all rows where `x` is not missing and `df |> filter(x < -10 | x > 0)` finds all rows where `x` is smaller than -10 or bigger than 0.
+
+13.3.1 \*Missing values
+
+```{r}
+df <- tibble(x = c(TRUE, FALSE, NA))
+
+df |> 
+  mutate(
+    and = x & NA,
+    or = x | NA
+  )
+```
+
+To understand what's going on, think about `NA | TRUE (NA or TRUE)`. A missing value in a logical vector means that the value could either be `TRUE` or `FALSE`. `TRUE | TRUE` and `FALSE | TRUE` are both `TRUE` because at least one of them is TRUE. `NA | TRUE` must also be `TRUE` because `NA` can either be `TRUE` or `FALSE`. However, `NA | FALSE` is `NA` because we don't know if `NA` is `TRUE` or `FALSE`. Similar reasoning applies with `NA & FALSE`.
+
+### 13.3.2 ☆Order of operations
+
+```{r}
+flights |> 
+   filter(month == 11 | month == 12)
+```
+
+This code doesn't error but it also doesn't seem to have worked. What's going on? Here, R first evaluates `month == 11` creating a logical vector, which we call `nov`. It computes `nov | 12`. When you use a number with a logical operator it converts everything apart from 0 to `TRUE`, so this is equivalent to `nov | TRUE` which will always be `TRUE`, so every row will be selected:
+
+```{r}
+flights |> 
+  mutate(
+    nov = month == 11,
+    final = nov | 12,
+    .keep = "used"
+  )
+```
+
+### 13.3.3 %in%
+
+An easy way to avoid the problem of getting your `==`s and `|`s in the right order is to use `%in%`. `x %in% y` returns a logical vector the same length as `x` that is `TRUE` whenever a value in `x` is anywhere in `y`.
+
+```{r}
+1:12 %in% c(1, 5, 11)
+
+letters[1:10] %in% c("a", "e", "i", "o", "u")
+```
+
+So to find all flights in November and December we could write:
+
+```{r}
+flights |> 
+  filter(month %in% c(11, 12))
+```
+
+Note that `%in%` obeys different rules for `NA` to `==`, as `NA %in% NA` is `TRUE`.
+
+```{r}
+c(1, 2, NA) == NA
+c(1, 2, NA) %in% NA
+```
+
+```{r}
+flights |> 
+  filter(dep_time %in% c(NA, 0800))
+```
+
+### 13.3.4 Exercises
+
+#### 1. Find all flights where `arr_delay` is missing but `dep_delay` is not. Find all flights where neither `arr_time` nor `sched_arr_time` are missing, but `arr_delay` is.
+
+```{r}
+flights |> 
+  filter(is.na(arr_delay)==TRUE & is.na(dep_delay)==FALSE)
+
+flights |> 
+  filter(is.na(arr_time)==FALSE & is.na(sched_arr_time)==FALSE) |> 
+  filter(is.na(arr_delay)==TRUE)
+```
+
+#### 2. How many flights have a missing `dep_time`? What other variables are missing in these rows? What might these rows represent?
+
+```{r}
+# missing dep_time.
+flights |> 
+  mutate(dep_delay_group = is.na(dep_time)) |> 
+  group_by(dep_delay_group) |> 
+  reframe(
+    n=n()
+  )
+
+# other variables containing NA.
+df <- flights |> 
+  filter(is.na(dep_time) == TRUE)
+colSums(is.na(df))
+
+df |> select(dep_time, dep_delay, arr_time, arr_delay, tailnum, air_time)
+
+# canceled flights?
+```
+
+#### 3. ☆Assuming that a missing `dep_time` implies that a flight is cancelled, look at the number of cancelled flights per day. Is there a pattern? Is there a connection between the proportion of cancelled flights and the average delay of non-cancelled flights?
+
+```{r}
+q <- flights |> 
+  mutate(dep_time_group = is.na(dep_time)) |> 
+  group_by(day, dep_time_group) |> 
+  summarize(n=n()) 
+q
+q |> filter(dep_time_group == TRUE) |> 
+  ggplot(aes(x=day,y=n))+geom_col()
+
+# proportion of cancelled flights per day
+q1 <- flights |> 
+  mutate(dep_time_group = is.na(dep_time)) |> 
+  group_by(day) |> 
+  summarize(prop = 
+              sum(dep_time_group==TRUE)/
+              sum(dep_time_group==TRUE|dep_time_group==FALSE),
+            .groups = "keep")
+q1
+q1 |> ggplot(aes(x=day, y=prop)) + geom_col()
+
+# average delay of non-cancelled flights per day
+
+
+```
+
+## 13.4 Summaries
+
+### 13.4.1 Logical summaries
+
+```{r}
+flights |> 
+  group_by(year, month, day) |> 
+  summarize(
+    all_delayed = all(dep_delay <= 60, na.rm = TRUE),
+    any_long_delay = any(arr_delay >= 300, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+### 13.4.2 Numeric summaries of logical vectors
+
+```{r}
+flights |> 
+  group_by(year, month, day) |> 
+  summarize(
+    all_delayed = mean(dep_delay <= 60, na.rm = TRUE),
+    any_long_delay = sum(arr_delay >= 300, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+### 13.4.3 Logical subsetting
+
+```{r}
+flights |> 
+  group_by(year, month, day) |> 
+  summarize(
+    behind = mean(arr_delay[arr_delay > 0], na.rm = TRUE),
+    ahead = mean(arr_delay[arr_delay < 0], na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  )
+```
+
+### 13.4.4 Exercises
+
+#### 1. What will `sum(is.na(x))` tell you? How about `mean(is.na(x))`?
+
+```{r}
+sum(is.na(flights))
+sum(is.na(flights$arr_delay))
+
+mean(is.na(flights))
+mean(is.na(flights$dep_time))
+# proportion???
+```
+
+#### 2. What does `prod()` return when applied to a logical vector? What logical summary function is it equivalent to? What does `min()` return when applied to a logical vector? What logical summary function is it equivalent to? Read the documentation and perform a few experiments.
+
+## 13.5 Conditional transformations
+
+### 13.5.1 if_else()
+
+You can also use vectors for the the true and false arguments. For example, this allows us to create a minimal implementation of abs():
+
+```{r}
+x <- c(-3:3, NA)
+if_else(x < 0, -x, x)
+```
+
+```{r}
+x1 <- c(NA, 1, 2, NA)
+y1 <- c(3, NA, 4, 6)
+if_else(is.na(x1), y1, x1)
+```
+
+```{r}
+if_else(x == 0, "0", if_else(x < 0, "-ve", "+ve"), "???")
+```
+
+#13.5.2 case_when()
+
+```{r}
+x <- c(-3:3, NA)
+
+case_when(
+  x < 0 ~ "-ve",
+  x > 0 ~ "+ve",
+  .default = "???"
+)
+# And note that if multiple conditions match, only the first will be used:
+
+case_when(
+  x > 0 ~ "+ve",
+  x > 2 ~ "big"
+)
+```
+
+```{r}
+flights |> 
+  mutate(
+    status = case_when(
+      is.na(arr_delay)      ~ "cancelled",
+      arr_delay < -30       ~ "very early",
+      arr_delay < -15       ~ "early",
+      abs(arr_delay) <= 15  ~ "on time",
+      arr_delay < 60        ~ "late",
+      arr_delay < Inf       ~ "very late",
+    ),
+    .keep = "used"
+  )
+```
+
+### 13.5.3 Compatible types
+
+Note that both `if_else()` and `case_when()` require compatible types in the output.
+
+Overall, relatively few types are compatible, because automatically converting one type of vector to another is a common source of errors. Here are the most important cases that are compatible:
+
+-   Numeric and logical vectors are compatible, as we discussed in Section 13.4.2.
+
+-   Strings and factors (Chapter 17) are compatible, because you can think of a factor as a string with a restricted set of values.
+
+-   Dates and date-times, which we'll discuss in Chapter 18, are compatible because you can think of a date as a special case of date-time.
+
+-   `NA`, which is technically a logical vector, is compatible with everything because every vector has some way of representing a missing value.
+
+We don't expect you to memorize these rules, but they should become second nature over time because they are applied consistently throughout the tidyverse.
+
+### 13.5.4 Exercises
+
+#### 1. A number is even if it's divisible by two, which in R you can find out with x %% 2 == 0. Use this fact and if_else() to determine whether each number between 0 and 20 is even or odd.
+
+```{r}
+x <- c(0:20)
+x
+if_else(x %% 2 == 0, "even", "odd")
+```
+
+#### 2. Given a vector of days like x \<- c("Monday", "Saturday", "Wednesday"), use an ifelse() statement to label them as weekends or weekdays.
+
+```{r}
+x <- c("Monday", "Saturday", "Wednesday")
+weekends <- c("Saturday", "Sunday") 
+ifelse(x %in% weekends, yes = "weekend", no = "weekday")
+```
+
+#### 3. Use ifelse() to compute the absolute value of a numeric vector called x.
+
+```{r}
+x <- c(-3:3)
+x
+ifelse(x < 0, yes = -x, no = x)
+```
+
+#### 4. Write a `case_when()` statement that uses the `month` and `day` columns from `flights` to label a selection of important US holidays (e.g., New Years Day, 4th of July, Thanksgiving, and Christmas). First create a logical column that is either `TRUE` or `FALSE`, and then create a character column that either gives the name of the holiday or is `NA`.
+
+```{r}
+flights |> mutate(
+  logic = case_when(
+  month == 1 & day == 1 ~ TRUE,
+  month == 7 & day == 4 ~ TRUE,
+  month = 11 & day == 28 ~ TRUE,
+  month == 12 & day == 25 ~ TRUE,
+  TRUE ~ FALSE)
+) |> 
+  mutate(
+    character = case_when(
+      month == 1 & day == 1 ~ "New Years Day",
+      month == 7 & day == 4 ~ "Independence Day",
+      month == 11 & day == 28 ~ "Thanksgiving Day",
+      month == 12 & day == 25 ~ "Christmas",
+      TRUE ~ NA_character_
+    )
+  )
+```
